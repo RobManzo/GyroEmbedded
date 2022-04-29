@@ -1,0 +1,29 @@
+HEX
+
+3E8FA000 CONSTANT FRAMEBUFFER_HDMI
+FRAMEBUFFER_HDMI 2FFFFFF + CONSTANT FRAMEBUFFER_HDMIMAX
+3EBDA000 CONSTANT MAXROW
+3EBEA000 CONSTANT LIMIT 
+1000 CONSTANT HEIGHT
+4 CONSTANT WIDTH
+
+VARIABLE ROW
+VARIABLE COLOR
+VARIABLE POINTER
+VARIABLE HDMI_COUNTER
+VARIABLE STR_LEN
+
+00FFFFFF 3E8FA000 1000 +
+
+\Word utilizzate per muoversi all'interno del framebuffer.
+: UP ( color addr -- ) HEIGHT - 2DUP ! ;
+: DOWN ( color addr -- ) HEIGHT + 2DUP ! ;
+: LEFT ( color addr -- ) WIDTH + 2DUP ! ;
+: RIGHT ( color addr -- ) WIDTH - 2DUP ! ;
+: UPLEFT ( color addr -- ) HEIGHT - WIDTH + 2DUP ! ;
+: UPRIGHT ( color addr -- ) HEIGHT - WIDTH - 2DUP ! ;
+: DOWNLEFT ( color addr -- ) HEIGHT + WIDTH + 2DUP ! ;
+: DOWNRIGHT ( color addr -- ) HEIGHT + WIDTH - 2DUP ! ;
+
+: PR ( color addr -- ) 2DUP ! WIDTH + ;
+: PD ( color addr -- ) 2DUP ! WIDTH + ;
