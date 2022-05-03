@@ -2,6 +2,10 @@
 : I2C{ BASEADDR 804000 + ;
 : }I2C DROP ;
 
+AE CONSTANT SLAVEADDR
+
+VARIABLE SAMPLE
+
 I2C{
 PIN BSC_CR PIN BSC_SR
 PIN BSC_DLEN PIN BSC_SLV
@@ -29,10 +33,11 @@ PIN BSC_DATD PIN BSC_CLKT
 : I2C_DLEN ( n -- ) BSC_DLEN ! ;
 : I2C_SETSLAVE ( addr -- ) BSC_SLV ! ;
 : I2C_GETSLAVE ( -- ) BSC_SLV @ U. ;
-: I2C_FIFO ( data -- ) BSC_FIFO ! ;
+: I2C_WFIFO ( data -- ) BSC_FIFO ! ;
+: I2C_RFIFO ( -- data ) BSC_FIFO @ ;
 : I2C_TD ( -- bit ) 1 BSC_SR GET_BIT ;   \Trasferimento completato?
 : I2C_AT ( -- bit ) 0 BSC_SR GET_BIT ;   \Trasferimento attivo?
-: I2C_RESETDONE ( -- ) BSC_SR @ 2 INVERT AND 2 OR BSC_SR ! ;
+: I2C_RESETSR ( -- ) BSC_SR @ 302 INVERT AND 302 OR BSC_SR ! ;
 : CHECKI2C BSC_CR GET_BIT . ;
 
 : GPIO_I2C ( -- )
@@ -51,11 +56,21 @@ PIN BSC_DATD PIN BSC_CLKT
 
 : WRITE_I2C ( data slave len -- )
     I2C_CLEAR
-    I2C_RESETDONE
+    I2C_RESETSR
     I2C_DLEN
     I2C_SETSLAVE
     I2C_FIFO
     I2C_WRITE
+    I2C_START
+    WAIT_DONE
+    WAIT_AT ;
+
+: READ_I2C ( data slave len -- )
+    I2C_CLEAR
+    I2C_RESETSR
+    I2C_DLEN
+    I2C_FIFO
+    I2C_READ
     I2C_START
     WAIT_DONE
     WAIT_AT ;

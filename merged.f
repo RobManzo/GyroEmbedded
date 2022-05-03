@@ -52,9 +52,10 @@ HEX
 DROP
 \*****************\
 
+C8 CONSTANT SLAVEADDR
 7E000000 CONSTANT BASEADDR
 
-: MASK 1 SWAP LSHIFT ;
+: MASK 1 SWAP LSHIFT ; 
 : PIN DUP CONSTANT 4 + ;
 : GET_BIT @ SWAP RSHIFT 2 MOD  ;
 : SKIP 4 + ;
@@ -73,7 +74,7 @@ PIN GPHEN0 PIN GPHEN1 SKIP
 PIN GPLEN0 PIN GPLEN1
 }GPIO
 
-\GPIO_BASE 00 + CONSTANT GPFSEL0
+GPIO_BASE 00 + CONSTANT GPFSEL0
 \GPIO_BASE 04 + CONSTANT GPFSEL1
 \GPIO_BASE 1C + CONSTANT GPSET0
 \GPIO_BASE 28 + CONSTANT GPCLR0
@@ -86,7 +87,7 @@ PIN GPLEN0 PIN GPLEN1
 : GPOFF ( pin -- ) 20 /MOD 4 * BASEADDR 200028 + + SWAP MASK SWAP ! ;
 
 : GPFSEL ( gpioPinNumber -- addr_gpfsel clr_value_gpfsel offset_base )
-    A /MOD 4 * BASEADDR 200000 + + SWAP 3 * DUP 7 SWAP LSHIFT ROT DUP @ ROT INVERT AND ROT ;
+    A /MOD 4 * GPIO_BASE + SWAP 3 * DUP 7 SWAP LSHIFT ROT DUP @ ROT INVERT AND ROT ;
 : GPIO_INPUT ( addr_gpfsel clr_value_gpfsel offset_base -- )
     1 SWAP LSHIFT INVERT AND SWAP ! ;
 : GPIO_OUTPUT ( addr_gpfsel clr_value_gpfsel offset_base -- )
@@ -142,6 +143,7 @@ PIN BSC_DATD PIN BSC_CLKT
 : I2C_OFF ( -- ) BSC_CR @ 8000 INVERT AND 0 OR BSC_CR ! ;
 : I2C_START ( -- ) BSC_CR @ 80 OR BSC_CR ! ;
 : I2C_WRITE ( -- ) BSC_CR @ 0 INVERT AND 0 OR BSC_CR ! ;
+: I2C_READ ( -- ) BSC_CR @ 1 INVERT AND 1 OR BSC_CR ! ;
 : I2C_CLEAR ( -- ) BSC_CR @ 20 OR BSC_CR ! ;
 : I2C_STATUS ( -- ) BSC_SR @ U. ;
 : I2C_DLEN ( n -- ) BSC_DLEN ! ;
@@ -150,7 +152,7 @@ PIN BSC_DATD PIN BSC_CLKT
 : I2C_FIFO ( data -- ) BSC_FIFO ! ;
 : I2C_TD ( -- bit ) 1 BSC_SR GET_BIT ;   \Trasferimento completato?
 : I2C_AT ( -- bit ) 0 BSC_SR GET_BIT ;   \Trasferimento attivo?
-: I2C_RESETDONE ( -- ) BSC_SR @ 2 INVERT AND 2 OR BSC_SR ! ;
+: I2C_RESETSR ( -- ) BSC_SR @ 302 INVERT AND 302 OR BSC_SR ! ;
 : CHECKI2C BSC_CR GET_BIT . ;
 
 : GPIO_I2C ( -- )
@@ -169,7 +171,7 @@ PIN BSC_DATD PIN BSC_CLKT
 
 : WRITE_I2C ( data slave len -- )
     I2C_CLEAR
-    I2C_RESETDONE
+    I2C_RESETSR
     I2C_DLEN
     I2C_SETSLAVE
     I2C_FIFO
@@ -177,6 +179,10 @@ PIN BSC_DATD PIN BSC_CLKT
     I2C_START
     WAIT_DONE
     WAIT_AT ;
+
+: READ_I2C ( data slave len -- )
+    WRITE_I2C
+    ;
 
 \MYCODE\
 \ SETUP DEI PIN GPIO 2 & 3 PER I2C (ALT FUNCTIONS)
@@ -201,3 +207,586 @@ PIN BSC_DATD PIN BSC_CLKT
 
 \ Scrittura di 1 Byte alla volta
 \: >I2C RESTORE_SR RESTORE_FIFO 1 BSC_DLEN ! SETUP_SLAVE STORE TRANSFER ;
+68 CONSTANT SLAVEADDR
+
+HEX
+
+3E8FA000 CONSTANT FRAMEBUFFER_HDMI
+FRAMEBUFFER_HDMI 2FFFFFF + CONSTANT FRAMEBUFFER_HDMIMAX
+3EBDA000 CONSTANT MAXROW
+3EBEA000 CONSTANT LIMIT 
+1000 CONSTANT HEIGHT
+4 CONSTANT WIDTH
+
+VARIABLE ROW
+VARIABLE COLOR
+VARIABLE POINTER
+VARIABLE HDMI_COUNTER
+VARIABLE STR_LEN
+
+00FFFFFF 3E8FA000 1000 +
+
+\Word utilizzate per muoversi all'interno del framebuffer.
+: NORTH ( color addr -- ) HEIGHT - 2DUP ! ;
+: SUD ( color addr -- ) HEIGHT + 2DUP ! ;
+: EAST ( color addr -- ) WIDTH + 2DUP ! ;
+: OVEST ( color addr -- ) WIDTH - 2DUP ! ;
+: NORTHEAST ( color addr -- ) HEIGHT - WIDTH + 2DUP ! ;
+: NORTHOVEST ( color addr -- ) HEIGHT - WIDTH - 2DUP ! ;
+: SUDEAST ( color addr -- ) HEIGHT + WIDTH + 2DUP ! ;
+: SUDOVEST ( color addr -- ) HEIGHT + WIDTH - 2DUP ! ;
+: PR ( color addr -- ) 2DUP ! WIDTH + ;
+: PD ( color addr -- ) 2DUP ! WIDTH + ;
+: UP ( addr value -- addr ) BEGIN SWAP HEIGHT - SWAP 1 - DUP 0 = UNTIL DROP ;
+: DOWN ( addr value -- addr ) BEGIN SWAP HEIGHT + SWAP 1 - DUP 0 = UNTIL DROP ;
+: LEFT ( addr value -- addr ) BEGIN SWAP WIDTH - SWAP 1 - DUP 0 = UNTIL DROP ;
+: RIGHT ( addr value -- addr ) BEGIN SWAP WIDTH + SWAP 1 - DUP 0 = UNTIL DROP ;
+: NEXT_CHAR ( addr -- addr )  6 UP 3 RIGHT ;
+\*****************************
+: SP ( -- ) 9 RIGHT ;
+
+: !! ( color, addr -- color, addr )
+    1 RIGHT EAST SUD SUD SUD 2 DOWN
+    SUD 2 RIGHT NEXT_CHAR ;
+
+: QM ( color, addr -- color, addr )
+    EAST SUD SUD 2 UP 1 RIGHT
+    EAST SUD SUD 4 DOWN 1 RIGHT NEXT_CHAR ;
+
+: !# ( color, addr -- color, addr )
+    2DUP 1 DOWN SUD EAST EAST EAST EAST
+    1 DOWN 4 LEFT SUD EAST EAST EAST EAST 2DROP
+    EAST SUD SUD SUD SUD SUD SUD 6 UP 1 RIGHT
+    EAST SUD SUD SUD SUD SUD SUD 1 RIGHT
+    NEXT_CHAR ;
+
+: !$ ( color, addr -- color, addr )
+    2DUP 4 RIGHT SUD OVEST OVEST OVEST
+    SUDOVEST SUDEAST EAST EAST SUDEAST
+    SUDOVEST OVEST OVEST OVEST 2DROP
+    1 RIGHT EAST SUD SUD SUD SUD SUD SUD
+    2 RIGHT NEXT_CHAR ;
+
+: !% ( color, addr -- color, addr )
+    2DUP ! SUD EAST NORTH 3 RIGHT
+    SUD SUDOVEST SUDOVEST SUDOVEST SUDOVEST
+    2 RIGHT EAST SUD NORTHEAST SUD NEXT_CHAR ;
+
+: !& ( color, addr -- color, addr )
+    2DUP EAST EAST SUDEAST
+    SUDOVEST SUDOVEST SUDOVEST SUD
+    SUDEAST EAST NORTHEAST NORTHEAST 2DROP
+    SUD SUD SUDEAST SUDEAST SUDEAST SUDEAST
+    NEXT_CHAR ;
+
+: !' ( color, addr -- color, addr )
+    EAST EAST SUD SUDOVEST 4 DOWN 3 RIGHT NEXT_CHAR ;
+
+: !( ( color, addr -- color, addr )
+    2 RIGHT EAST SUDOVEST SUDOVEST SUD SUD
+    SUDEAST SUDEAST 1 RIGHT NEXT_CHAR ;
+
+: !) ( color, addr -- color, addr )
+    EAST SUDEAST SUDEAST SUD SUD
+    SUDOVEST SUDOVEST 3 RIGHT NEXT_CHAR ;
+
+: !* ( color, addr -- color, addr )
+    2DUP 2DUP 1 DOWN SUD SUDEAST SUDOVEST 2DROP
+    2 RIGHT SUD SUD SUD SUD SUD 2DROP 1 DOWN 4 RIGHT
+    SUD SUDOVEST SUDEAST 2 DOWN NEXT_CHAR ;
+
+: !+ ( color, addr -- color, addr )
+    2DUP 2 DOWN SUD EAST EAST EAST EAST 2DROP
+    2 RIGHT SUD SUD SUD SUD SUD 1 DOWN 2 RIGHT NEXT_CHAR ;
+
+: !, ( color, addr -- color, addr )
+    3 DOWN SUDEAST EAST SUD SUDOVEST
+    3 RIGHT NEXT_CHAR ;
+
+: !- ( color, addr -- color, addr )
+    2 DOWN SUD EAST EAST EAST EAST
+    3 DOWN NEXT_CHAR ;
+
+: !. ( color, addr -- color, addr )
+    6 DOWN EAST NORTH EAST SUD 2 RIGHT NEXT_CHAR ;
+
+: !/ ( color, addr -- color, addr )
+    4 DOWN SUD NORTHEAST NORTHEAST
+    NORTHEAST NORTHEAST 5 DOWN NEXT_CHAR ;
+
+: !0 ( color, addr -- color, addr )
+    2DUP EAST EAST EAST 2DROP
+    SUD SUD SUD SUD SUD
+    NORTHEAST NORTHEAST NORTHEAST NORTHEAST
+    SUD SUD SUD SUD
+    SUDOVEST OVEST OVEST 3 RIGHT NEXT_CHAR ;
+
+: !1 ( color, addr -- color, addr )
+    1 RIGHT EAST SUDOVEST EAST
+    SUD SUD SUD SUD
+    SUDOVEST EAST EAST 1 RIGHT NEXT_CHAR ;
+
+: !2 ( color, addr -- color, addr )
+    SUD NORTHEAST EAST EAST
+    SUDEAST SUD
+    SUDOVEST SUDOVEST SUDOVEST
+    SUDOVEST EAST EAST EAST EAST NEXT_CHAR ;
+
+: !3 ( color, addr -- color, addr )
+    2DUP ! EAST EAST EAST EAST
+    SUDOVEST SUDOVEST SUDEAST SUDEAST SUD
+    SUDOVEST OVEST OVEST NORTHOVEST 1 DOWN 4 RIGHT NEXT_CHAR ;
+
+: !4 ( color, addr -- color, addr )
+    2 RIGHT EAST SUDOVEST SUDOVEST SUDOVEST SUD
+    EAST EAST EAST EAST 3 UP OVEST
+    SUD SUD SUD SUD SUD 1 RIGHT NEXT_CHAR ;
+
+: !5 ( color, addr -- color, addr )
+    4 RIGHT 2DUP ! OVEST OVEST OVEST OVEST
+    SUD SUD EAST EAST EAST
+    SUDEAST SUD SUD
+    SUDOVEST OVEST OVEST NORTHOVEST 1 DOWN 4 RIGHT NEXT_CHAR ;
+
+: !6 ( color, addr -- color, addr )
+    4 RIGHT OVEST OVEST SUDOVEST SUDOVEST
+    SUD SUD SUD SUDEAST EAST EAST
+    NORTHEAST NORTH NORTHOVEST
+    OVEST OVEST 3 DOWN 3 RIGHT NEXT_CHAR ;
+
+: !7 ( color, addr -- color, addr )
+    2DUP ! EAST EAST EAST EAST
+    SUD SUDOVEST SUDOVEST SUDOVEST
+    SUD SUD 3 RIGHT NEXT_CHAR ;
+
+: !8 ( color, addr -- color, addr )
+    3 DOWN NORTH NORTH NORTHEAST EAST EAST
+    SUDEAST SUD SUDOVEST OVEST OVEST
+    SUDOVEST SUD SUDEAST EAST EAST
+    NORTHEAST NORTH 2 DOWN NEXT_CHAR ;
+
+: !9 ( color, addr -- color, addr )
+    2 DOWN 3 RIGHT EAST NORTH NORTHOVEST OVEST OVEST
+    SUDOVEST SUD SUDEAST EAST EAST EAST
+    SUD SUDOVEST SUDOVEST OVEST 3 RIGHT NEXT_CHAR ;
+
+: !: ( color, addr -- color, addr )
+    2DUP SUDEAST SUD EAST NORTH 2DROP
+    3 DOWN SUDEAST SUD NORTHEAST SUD
+    1 DOWN 2 RIGHT NEXT_CHAR ;
+
+: !; ( color, addr -- color, addr )
+    SUDEAST EAST SUD OVEST 1 DOWN
+    SUD EAST SUD SUDOVEST 3 RIGHT NEXT_CHAR ;
+
+: !< ( color, addr -- color, addr )
+    2 RIGHT EAST SUDOVEST SUDOVEST SUDOVEST
+    SUDEAST SUDEAST SUDEAST 1 RIGHT NEXT_CHAR ;
+
+: != ( color, addr -- color, addr )
+    2DUP 1 DOWN SUD EAST EAST EAST EAST 2DROP
+    3 DOWN SUD EAST EAST EAST EAST
+    2 DOWN NEXT_CHAR ;
+
+: !> ( color, addr -- color, addr )
+    EAST SUDEAST SUDEAST SUDEAST
+    SUDOVEST SUDOVEST SUDOVEST 3 RIGHT NEXT_CHAR ;
+
+: !? ( color, addr -- color, addr )
+    SUD NORTHEAST EAST EAST SUDEAST
+    SUD SUDOVEST SUDOVEST 1 DOWN
+    SUD 2 RIGHT NEXT_CHAR ;
+
+: !@ ( color, addr -- color, addr )
+    SUD NORTHEAST EAST EAST SUDEAST
+    SUD SUD SUD SUD SUDOVEST OVEST
+    OVEST NORTHOVEST NORTH NORTHEAST
+    EAST SUD SUD 1 DOWN 2 RIGHT NEXT_CHAR ;
+
+: !A ( color, addr -- color, addr )
+    2DUP 3 DOWN 1 RIGHT SUD EAST EAST 2DROP
+    7 DOWN NORTH NORTH NORTH NORTH NORTH NORTH
+    NORTHEAST EAST EAST SUDEAST
+    SUD SUD SUD SUD SUD NEXT_CHAR ;
+
+: !B ( color, addr -- color, addr )
+    2 DOWN 1 RIGHT SUD EAST EAST NORTHEAST NORTH
+    NORTHOVEST OVEST OVEST OVEST
+    SUD SUD SUD SUD SUD SUD
+    EAST EAST EAST NORTHEAST NORTH
+    2 DOWN NEXT_CHAR ;
+
+: !C ( color, addr -- color, addr )
+    1 DOWN 3 RIGHT EAST NORTHOVEST OVEST OVEST
+    SUDOVEST SUD SUD SUD SUD
+    SUDEAST EAST EAST NORTHEAST
+    1 DOWN NEXT_CHAR ;
+
+: !D ( color, addr -- color, addr )
+    4 DOWN 3 RIGHT SUD NORTHEAST NORTH NORTH
+    NORTHOVEST NORTHOVEST OVEST OVEST
+    SUD SUD SUD SUD SUD SUD
+    EAST EAST 2 RIGHT NEXT_CHAR ;
+
+: !E ( color, addr -- color, addr )
+    2 DOWN 1 RIGHT SUD EAST EAST 2 UP 1 RIGHT
+    NORTH OVEST OVEST OVEST OVEST
+    SUD SUD SUD SUD SUD SUD
+    EAST EAST EAST EAST NEXT_CHAR ;
+
+: !F ( color, addr -- color, addr )
+    2 DOWN 1 RIGHT SUD EAST EAST 2 UP 1 RIGHT
+    NORTH OVEST OVEST OVEST OVEST
+    SUD SUD SUD SUD SUD SUD
+    4 RIGHT NEXT_CHAR ;
+
+: !G ( color, addr -- color, addr )
+    1 DOWN 3 RIGHT EAST NORTHOVEST OVEST OVEST
+    SUDOVEST SUD SUD SUD SUD
+    SUDEAST EAST EAST EAST
+    NORTH NORTH NORTH OVEST OVEST
+    3 DOWN 2 RIGHT NEXT_CHAR ;
+
+: !H ( color, addr -- color, addr )
+    2DUP 4DUP !
+    SUD SUD SUD SUD SUD SUD 2DROP
+    2 DOWN 1 RIGHT SUD EAST EAST 2DROP
+    3 RIGHT EAST SUD SUD SUD SUD SUD SUD
+    NEXT_CHAR ;
+
+: !I ( color, addr -- color, addr )
+    EAST EAST EAST SUDOVEST
+    SUD SUD SUD SUD SUDOVEST
+    EAST EAST 1 RIGHT NEXT_CHAR ;
+
+: !J ( color, addr -- color, addr )
+    1 RIGHT EAST EAST EAST SUDOVEST
+    SUD SUD SUD SUD SUDOVEST
+    OVEST NORTHOVEST 1 DOWN 4 RIGHT NEXT_CHAR ;
+
+: !K ( color, addr -- color, addr )
+    2DUP 2DUP !
+    SUD SUD SUD SUD SUD SUD 2DROP
+    3 RIGHT EAST SUDOVEST SUDOVEST SUDOVEST
+    SUDEAST SUDEAST SUDEAST NEXT_CHAR ;
+
+: !L ( color, addr -- color, addr )
+    2DUP ! SUD SUD SUD SUD SUD SUD
+    EAST EAST EAST EAST NEXT_CHAR ;
+
+: !M ( color, addr -- color, addr )
+    7 DOWN
+    NORTH NORTH NORTH NORTH NORTH NORTH NORTH
+    SUDEAST SUDEAST SUD NORTH NORTHEAST NORTHEAST
+    SUD SUD SUD SUD SUD SUD NEXT_CHAR ;
+
+: !N ( color, addr -- color, addr )
+    2DUP 4DUP !
+    SUD SUD SUD SUD SUD SUD 2DROP
+    1 DOWN 1 RIGHT SUD SUDEAST SUDEAST 2DROP
+    3 RIGHT EAST SUD SUD SUD SUD SUD SUD
+    NEXT_CHAR ;
+
+: !O ( color, addr -- color, addr )
+    4 RIGHT OVEST OVEST OVEST SUDOVEST
+    SUD SUD SUD SUD SUDEAST EAST EAST
+    NORTHEAST NORTH NORTH NORTH NORTH
+    5 DOWN NEXT_CHAR ;
+
+: !P ( color, addr -- color, addr )
+    2DUP 2DUP !
+    EAST EAST EAST SUDEAST SUD
+    SUDOVEST OVEST OVEST 2DROP
+    SUD SUD SUD SUD SUD SUD
+    4 RIGHT NEXT_CHAR ;
+
+: !Q ( color, addr -- color, addr )
+    5 DOWN 2 RIGHT SUD OVEST NORTHOVEST
+    NORTH NORTH NORTH NORTH
+    NORTHEAST EAST EAST SUDEAST
+    SUD SUD SUD SUDOVEST
+    NORTHOVEST SUDEAST SUDEAST
+    NEXT_CHAR ;
+
+: !R ( color, addr -- color, addr )
+    2DUP 2DUP !
+    SUD SUD SUD SUD SUD SUD 2DROP
+    EAST EAST EAST SUDEAST SUD
+    SUDOVEST OVEST OVEST
+    SUDEAST SUDEAST SUDEAST NEXT_CHAR ;
+
+: !S ( color, addr -- color, addr )
+    1 DOWN 4 RIGHT NORTH OVEST OVEST OVEST
+    SUDOVEST SUD SUDEAST EAST EAST
+    SUDEAST SUD SUDOVEST OVEST OVEST OVEST
+    4 RIGHT NEXT_CHAR ;
+
+: !T ( color, addr -- color, addr )
+    2DUP 2DUP !
+    EAST EAST EAST EAST 2DROP
+    1 DOWN 1 RIGHT EAST SUD SUD SUD SUD SUD
+    2 RIGHT NEXT_CHAR ;
+
+: !U ( color, addr -- color, addr )
+    2DUP ! SUD SUD SUD SUD SUD
+    SUDEAST EAST EAST NORTHEAST
+    NORTH NORTH NORTH NORTH NORTH
+    6 DOWN NEXT_CHAR ;
+
+: !V ( color, addr -- color, addr )
+    2DUP ! SUD SUD SUD SUD
+    SUDEAST SUDEAST NORTHEAST NORTHEAST
+    NORTH NORTH NORTH NORTH
+    6 DOWN NEXT_CHAR ;
+
+: !W ( color, addr -- color, addr )
+    2DUP 2DUP ! 2 DOWN 2 RIGHT SUD SUD 2DROP
+    SUD SUD SUD SUD SUD
+    SUDEAST NORTHEAST SUDEAST NORTHEAST
+    NORTH NORTH NORTH NORTH NORTH
+    6 DOWN NEXT_CHAR ;
+
+: !X ( color, addr -- color, addr )
+    2DUP 2DUP !
+    3 RIGHT EAST SUD SUDOVEST SUDOVEST
+    SUDOVEST SUDOVEST SUD 2DROP
+    SUD SUDEAST SUDEAST
+    SUDEAST SUDEAST SUD NEXT_CHAR ;
+
+: !Y ( color, addr -- color, addr )
+    2DUP 2DUP ! SUD SUD
+    SUDEAST SUDEAST NORTHEAST NORTHEAST
+    NORTH NORTH 2DROP
+    5 DOWN 1 RIGHT EAST SUD 2 RIGHT NEXT_CHAR ;
+
+: !Z ( color, addr -- color, addr )
+    2DUP ! EAST EAST EAST EAST SUD
+    SUDOVEST SUDOVEST SUDOVEST SUDOVEST
+    SUD EAST EAST EAST EAST NEXT_CHAR ;
+
+: ![ ( color, addr -- color, addr )
+    4 RIGHT OVEST OVEST OVEST
+    SUD SUD SUD SUD SUD SUD
+    EAST EAST 1 RIGHT NEXT_CHAR ;
+
+: !\ ( color, addr -- color, addr )
+    SUD SUDEAST SUDEAST SUDEAST SUDEAST
+    1 DOWN NEXT_CHAR ;
+
+: !] ( color, addr -- color, addr )
+    EAST EAST EAST SUD SUD SUD SUD SUD SUD
+    OVEST OVEST 3 RIGHT NEXT_CHAR ;
+
+: !^ ( color, addr -- color, addr )
+    1 DOWN SUD NORTHEAST NORTHEAST
+    SUDEAST SUDEAST 4 DOWN NEXT_CHAR ;
+
+: !_ ( color, addr -- color, addr )
+    5 DOWN SUD EAST EAST EAST EAST NEXT_CHAR ;
+
+: !` ( color, addr -- color, addr )
+    EAST SUDEAST SUDEAST 4 DOWN 1 RIGHT NEXT_CHAR ;
+
+: _a ( color, addr -- color, addr )
+    1 DOWN SUDEAST EAST EAST SUDEAST
+    SUD SUD NORTHOVEST OVEST OVEST
+    SUDOVEST SUDEAST EAST EAST EAST
+    NEXT_CHAR ;
+
+: _b ( color, addr -- color, addr )
+    2DUP ! SUD SUD SUD SUD SUD SUD
+    EAST EAST EAST NORTHEAST
+    NORTH NORTH NORTHOVEST OVEST
+    SUDOVEST 3 DOWN 3 RIGHT NEXT_CHAR ;
+
+: _c ( color, addr -- color, addr )
+    1 DOWN 3 RIGHT SUD OVEST OVEST SUDOVEST
+    SUD SUD SUDEAST EAST EAST
+    NORTHEAST 1 DOWN NEXT_CHAR ;
+
+: _d ( color, addr -- color, addr )
+    3 RIGHT EAST SUD SUD SUD SUD SUD SUD
+    OVEST OVEST OVEST NORTHOVEST
+    NORTH NORTH NORTHEAST EAST SUDEAST
+    3 DOWN 1 RIGHT NEXT_CHAR ;
+
+: _e ( color, addr -- color, addr )
+    2 DOWN SUD NORTHEAST EAST EAST
+    SUDEAST SUD OVEST OVEST OVEST OVEST
+    SUD SUDEAST EAST EAST 1 RIGHT NEXT_CHAR ;
+
+: _f ( color, addr -- color, addr )
+    4 RIGHT SUD NORTHOVEST OVEST SUDOVEST
+    SUD SUDOVEST EAST EAST SUDOVEST
+    SUD SUD 3 RIGHT NEXT_CHAR ;
+
+: _g ( color, addr -- color, addr )
+    3 DOWN 3 RIGHT EAST NORTH NORTH OVEST OVEST OVEST
+    SUDOVEST SUD SUDEAST EAST EAST EAST SUD
+    SUDOVEST OVEST OVEST 3 RIGHT NEXT_CHAR ;
+
+: _h ( color, addr -- color, addr )
+    2DUP ! SUD SUD SUD SUD SUD SUD 2 UP
+    NORTHEAST NORTHEAST EAST SUDEAST
+    SUD SUD SUD NEXT_CHAR ;
+
+: _i ( color, addr -- color, addr )
+    1 RIGHT EAST 1 DOWN SUDOVEST EAST
+    SUD SUD SUD SUDOVEST EAST EAST
+    1 RIGHT NEXT_CHAR ;
+
+: _j ( color, addr -- color, addr )
+    2 RIGHT EAST 1 DOWN SUDOVEST EAST
+    SUD SUD SUD SUDOVEST OVEST
+    NORTHOVEST 1 DOWN 4 RIGHT NEXT_CHAR ;
+
+: _k ( color, addr -- color, addr )
+    2DUP 2DUP ! SUD SUD SUD SUD SUD SUD
+    2DROP 1 DOWN 3 RIGHT SUD SUDOVEST SUDOVEST
+    SUDEAST SUDEAST 1 RIGHT NEXT_CHAR ;
+
+: _l ( color, addr -- color, addr )
+    EAST EAST SUD SUD SUD SUD SUD
+    SUDOVEST EAST EAST 1 RIGHT NEXT_CHAR ;
+
+: _m ( color, addr -- color, addr )
+    7 DOWN NORTH NORTH NORTH NORTH NORTH
+    EAST SUDEAST SUD NORTH NORTHEAST
+    SUDEAST SUD SUD SUD NEXT_CHAR ;
+
+: _n ( color, addr -- color, addr )
+    7 DOWN NORTH NORTH NORTH NORTH NORTH
+    SUDEAST NORTHEAST EAST SUDEAST
+    SUD SUD SUD NEXT_CHAR ;
+
+: _o ( color, addr -- color, addr )
+    5 DOWN 3 RIGHT EAST NORTH NORTH NORTHOVEST
+    OVEST OVEST SUDOVEST SUD SUD SUDEAST
+    EAST EAST 1 RIGHT NEXT_CHAR ;
+
+: _p ( color, addr -- color, addr )
+    7 DOWN NORTH NORTH NORTH NORTH NORTH
+    EAST EAST EAST SUDEAST SUDOVEST
+    OVEST OVEST 2 DOWN 3 RIGHT NEXT_CHAR ;
+
+: _q ( color, addr -- color, addr )
+    3 DOWN 2 RIGHT SUDEAST OVEST OVEST NORTHOVEST
+    NORTHEAST EAST SUDEAST NORTHEAST
+    SUD SUD SUD SUD NEXT_CHAR ;
+
+: _r ( color, addr -- color, addr )
+    7 DOWN NORTH NORTH NORTH NORTH NORTH
+    SUDEAST NORTHEAST EAST SUDEAST
+    3 DOWN NEXT_CHAR ;
+
+: _s ( color, addr -- color, addr )
+    1 DOWN 3 RIGHT SUD OVEST OVEST SUDOVEST
+    SUDEAST EAST EAST SUDEAST SUDOVEST
+    OVEST OVEST OVEST 4 RIGHT NEXT_CHAR ;
+
+: _t ( color, addr -- color, addr )
+    EAST SUD SUDOVEST EAST EAST SUDOVEST
+    SUD SUD SUDEAST EAST NORTHEAST
+    1 DOWN NEXT_CHAR ;
+
+: _u ( color, addr -- color, addr )
+    1 DOWN SUD SUD SUD SUD SUDEAST EAST
+    NORTHEAST SUDEAST NORTH NORTH
+    NORTH NORTH 4 DOWN NEXT_CHAR ;
+
+: _v ( color, addr -- color, addr )
+    1 DOWN SUD SUD SUD SUDEAST SUDEAST
+    NORTHEAST NORTHEAST NORTH NORTH
+    4 DOWN NEXT_CHAR ;
+
+: _w ( color, addr -- color, addr )
+    1 DOWN SUD SUD SUD SUD SUDEAST
+    NORTHEAST NORTH SUD SUDEAST NORTHEAST
+    NORTH NORTH NORTH 4 DOWN NEXT_CHAR ;
+
+: _x ( color, addr -- color, addr )
+    2DUP 1 DOWN 4 RIGHT SUD SUDOVEST SUDOVEST
+    SUDOVEST SUDOVEST 2DROP 1 DOWN SUD
+    SUDEAST SUDEAST SUDEAST SUDEAST NEXT_CHAR ;
+
+: _y ( color, addr -- color, addr )
+    1 DOWN SUD SUD SUDEAST EAST EAST
+    NORTHEAST NORTH SUD SUD SUD SUDOVEST
+    OVEST OVEST 3 RIGHT NEXT_CHAR ;
+
+: _z ( color, addr -- color, addr )
+    1 DOWN SUD EAST EAST EAST EAST
+    SUDOVEST SUDOVEST SUDOVEST SUDOVEST
+    EAST EAST EAST EAST NEXT_CHAR ;
+
+: !{ ( color, addr -- color, addr )
+    2 RIGHT EAST SUDOVEST SUD SUDOVEST
+    SUDEAST SUD SUDEAST 1 RIGHT NEXT_CHAR ;
+
+: !| ( color, addr -- color, addr )
+    1 RIGHT EAST SUD SUD SUD SUD SUD SUD
+    2 RIGHT NEXT_CHAR ;
+
+: !} ( color, addr -- color, addr )
+    EAST SUDEAST SUD SUDEAST SUDOVEST
+    SUD SUDOVEST 3 RIGHT NEXT_CHAR ;
+
+\******************************* COMMAND
+CREATE ASCII  ' SP , ' !! , ' QM , ' !# , ' !$ , ' !% ,
+' !& , ' !' , ' !( , ' !) , ' !* , ' !+ , ' !, , ' !- ,
+' !. , ' !/ , ' !0 , ' !1 , ' !2 , ' !3 , ' !4 , ' !5 ,
+' !6 , ' !7 , ' !8 , ' !9 , ' !: , ' !; , ' !< , ' != ,
+' !> , ' !? , ' !@ , ' !A , ' !B , ' !C , ' !D , ' !E ,
+' !F , ' !G , ' !H , ' !I , ' !J , ' !K , ' !L , ' !M ,
+' !N , ' !O , ' !P , ' !Q , ' !R , ' !S , ' !T , ' !U ,
+' !V , ' !W , ' !X , ' !Y , ' !Z , ' ![ , ' !\ , ' !] ,
+' !^ , ' !_ , ' !` , ' _a , ' _b , ' _c , ' _d , ' _e ,
+' _f , ' _g , ' _h , ' _i , ' _j , ' _k , ' _l , ' _m ,
+' _n , ' _o , ' _p , ' _q , ' _r , ' _s , ' _t , ' _u ,
+' _v , ' _w , ' _x , ' _y , ' _z , ' !{ , ' !| , ' !} ,
+
+: WRITE_PREPARE ( -- color addr ) COLOR @ POINTER @ ;
+
+: ASCII_COMPILE ( ascii -- )
+    ASCII SWAP 20 - 4 * + @ WRITE_PREPARE ROT EXECUTE POINTER ! COLOR ! ;
+
+: PRINT_HDMI ( addr len -- )
+    0 HDMI_COUNTER ! STR_LEN ! >R
+    BEGIN RSP@ @ HDMI_COUNTER @ + C@ ASCII_COMPILE HDMI_COUNTER
+    INCREMENT_RETURN STR_LEN @ = UNTIL R> DROP ;
+
+: SELECT_COLOR ( color -- ) COLOR ! ;
+
+: SELECT_POINT ( x y --  ) 400 * + 4 * FRAMEBUFFER_HDMI + POINTER ! ;
+
+: POINT_INITIALIZZATION (  --  ) 0 0 SELECT_POINT POINTER @ ROW ! ;
+
+CREATE SCROLL
+\00008000 <_start>:
+e59f701c ,	\ldr	r7, [pc, #28]	; 8024 <addr_FRAMEBUFFER>
+e2877801 ,	\add	r7, r7, #65536	; 0x10000
+e59f9018 ,	\ldr	r9, [pc, #24]	; 8028 <addr_LIMIT>
+e59f8010 ,	\ldr	r8, [pc, #16]	; 8024 <addr_FRAMEBUFFER>
+\00008010 <_loop>:
+e8b7007f ,	\ldm	r7!, {r0, r1, r2, r3, r4, r5, r6}
+e8a8007f ,	\stmia	r8!, {r0, r1, r2, r3, r4, r5, r6}
+e1570009 ,	\cmp	r7, r9
+9afffffb ,	\bls	8010 <_loop>
+e12fff1e ,	\bx	lr
+\DATA
+FRAMEBUFFER_HDMI ,
+LIMIT ,
+DOES> JSR ;
+
+: SCROLLING ( -- ) SCROLL DROP ;
+
+: HDMI_PAGE ( -- ) 2F BEGIN SCROLLING 1 - DUP 0= UNTIL DROP POINT_INITIALIZZATION ;
+
+: HDMI_RETURN ( -- )
+    ROW @ 10000 + ROW !
+    ROW @ MAXROW = IF ROW @ 10000 - ROW ! SCROLLING ROW @ POINTER !
+    ELSE ROW @ POINTER ! THEN ;
+
+: HDMI_INIT ( -- ) FFFFFF SELECT_COLOR POINT_INITIALIZZATION ;
+
+: PRESENTATION S" Embedded Systems: Roberto Manzo"; PRINT_HDMI HDMI_RETURN  ;
