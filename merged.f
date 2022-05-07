@@ -326,18 +326,20 @@ C8 CONSTANT CANVAS_DIM
     DUP 1C 3 PICK VERT_LINE              1 PR
     DUP 1C 3 PICK VERT_LINE              1 PR
     DUP 1C 3 PICK VERT_LINE              1 PR
+    DUP 1C 3 PICK VERT_LINE              1 PR
     DUP 9 3 PICK VERT_LINE               
     DUP 14 PD 8 3 PICK VERT_LINE          1 PR
+    DUP 8 3 PICK VERT_LINE               
+    DUP 15 PD 7 3 PICK VERT_LINE          1 PR
+    DUP 8 3 PICK VERT_LINE               
+    DUP 15 PD 7 3 PICK VERT_LINE          1 PR
+    DUP 8 3 PICK VERT_LINE               
+    DUP 15 PD 7 3 PICK VERT_LINE          1 PR
+    DUP 8 3 PICK VERT_LINE               
+    DUP 15 PD 7 3 PICK VERT_LINE          1 PR
     DUP 9 3 PICK VERT_LINE               
     DUP 14 PD 8 3 PICK VERT_LINE          1 PR
-    DUP 9 3 PICK VERT_LINE               
-    DUP 14 PD 8 3 PICK VERT_LINE          1 PR
-    DUP 9 3 PICK VERT_LINE               
-    DUP 14 PD 8 3 PICK VERT_LINE          1 PR
-    DUP 9 3 PICK VERT_LINE               
-    DUP 14 PD 8 3 PICK VERT_LINE          1 PR
-    DUP 9 3 PICK VERT_LINE               
-    DUP 14 PD 8 3 PICK VERT_LINE          1 PR
+    DUP 1C 3 PICK VERT_LINE              1 PR
     DUP 1C 3 PICK VERT_LINE              1 PR
     DUP 1C 3 PICK VERT_LINE              1 PR
     DUP 1C 3 PICK VERT_LINE              1 PR
