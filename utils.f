@@ -51,3 +51,18 @@ HEX
 : DOES> STATE @ 0= IF DOES>INT ELSE DOES>COMP THEN ; IMMEDIATE
 DROP
 \*****************\
+
+: MASK ( pos -- ) 1 SWAP LSHIFT ;
+: GET_BIT ( posBit addr -- value ) @ SWAP RSHIFT 2 MOD  ;
+: PIN ( addr -- addr ) DUP CONSTANT 4 + ;
+: SKIP ( addr -- addr ) 4 + ;
+: RETURN_TRUE ( -- value value ) 1 1 ;
+: RETURN_FALSE ( -- value value ) 0 1 ;
+: INCREMENT ( addr -- ) DUP @ 1 + SWAP ! ;
+: DECREMENT ( addr -- ) DUP @ 1 - SWAP ! ;
+: INCREMENT_RETURN ( addr -- value ) DUP @ 1 + OVER ! @ ;
+: 4DUP ( n1 n2 n3 n4 -- n1 n2 n3 n4 n1 n2 n3 n4) 2OVER 2OVER ;
+: -6ROT ( n1 n2 n3 n4 n5 n6 -- n6 n1 n2 n3 n4 n5) SWAP >R SWAP >R SWAP >R -ROT R> R> R> ;
+: ATOI ( ascii -- number ) 30 - ;
+
+7E000000 CONSTANT BASEADDR

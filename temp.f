@@ -197,3 +197,13 @@
     DUP E 3 PICK VERT_LINE              1 PR
     DUP E 3 PICK VERT_LINE              1 PR
     NEXT_CHAR SWAP ;
+
+
+
+
+
+
+    \MAIN
+    : INIT
+    HDMI_INIT
+    S" Roberto Manzo" PRINT_HDMI HDMI_RETURN ;
